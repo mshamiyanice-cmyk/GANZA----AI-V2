@@ -17,14 +17,19 @@ const LiveAPIDemo = () => {
 
   // Configuration State
   const [proxyUrl, setProxyUrl] = useState(
-    localStorage.getItem("proxyUrl") || "ws://localhost:8080"
+    import.meta.env.VITE_PROXY_URL ||
+    localStorage.getItem("proxyUrl") ||
+    "ws://localhost:8080"
   );
   const [projectId, setProjectId] = useState(
-    localStorage.getItem("projectId") || ""
+    import.meta.env.VITE_GCP_PROJECT_ID ||
+    localStorage.getItem("projectId") ||
+    ""
   );
   const [model, setModel] = useState(
+    import.meta.env.VITE_DEFAULT_MODEL ||
     localStorage.getItem("model") ||
-      "gemini-2.5-flash-native-audio-preview-12-2025"
+    "gemini-2.5-flash-native-audio-preview-12-2025"
   );
 
   useEffect(() => {
