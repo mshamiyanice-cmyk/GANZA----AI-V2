@@ -7,6 +7,7 @@ import {
   AudioPlayer,
 } from "../utils/media-utils";
 import { ShowAlertTool, AddCSSStyleTool } from "../utils/tools";
+import { getAppSetting } from "../utils/config";
 import "./LiveAPIDemo.css";
 
 const LiveAPIDemo = () => {
@@ -17,19 +18,11 @@ const LiveAPIDemo = () => {
 
   // Configuration State
   const [proxyUrl, setProxyUrl] = useState(
-    import.meta.env.VITE_PROXY_URL ||
-    localStorage.getItem("proxyUrl") ||
-    "ws://localhost:8080"
+    getAppSetting("proxyUrl", "ws://localhost:8080")
   );
-  const [projectId, setProjectId] = useState(
-    import.meta.env.VITE_GCP_PROJECT_ID ||
-    localStorage.getItem("projectId") ||
-    ""
-  );
+  const [projectId, setProjectId] = useState(getAppSetting("projectId", ""));
   const [model, setModel] = useState(
-    import.meta.env.VITE_DEFAULT_MODEL ||
-    localStorage.getItem("model") ||
-    "gemini-2.5-flash-native-audio-preview-12-2025"
+    getAppSetting("model", "gemini-2.5-flash-native-audio-preview-12-2025")
   );
 
   useEffect(() => {
