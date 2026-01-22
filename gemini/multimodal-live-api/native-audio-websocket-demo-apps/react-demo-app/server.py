@@ -31,7 +31,8 @@ from google.auth.transport.requests import Request
 
 # Configuration from environment variables
 DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
-WS_PORT = int(os.getenv('WS_PORT', '8080'))
+# Render uses 'PORT', local/manual uses 'WS_PORT'
+WS_PORT = int(os.getenv('PORT', os.getenv('WS_PORT', '8080')))
 GCP_PROJECT_ID = os.getenv('GCP_PROJECT_ID', '')
 GCP_REGION = os.getenv('GCP_REGION', 'us-central1')
 DEFAULT_MODEL = os.getenv('DEFAULT_MODEL', 'gemini-live-2.5-flash-native-audio')
@@ -196,6 +197,19 @@ async def create_proxy(
             await client_websocket.close(code=1008, reason="Upstream connection failed")
 
 
+async def handle_health_check(path, request_headers):
+    """
+    Handle HTTP requests for health checks (Render compatibility).
+    """
+    if path == "/healthz":
+        return (
+            ssl.HTTPStatus.OK,
+            [("Content-Type", "text/plain"), ("Connection", "close")],
+            b"OK\n",
+        )
+    return None
+
+
 async def handle_websocket_client(client_websocket: WebSocketServerProtocol) -> None:
     """
     Handles a new WebSocket client connection.
@@ -252,8 +266,14 @@ async def handle_websocket_client(client_websocket: WebSocketServerProtocol) -> 
 
 async def start_websocket_server():
     """Start the WebSocket proxy server."""
-    async with websockets.serve(handle_websocket_client, "0.0.0.0", WS_PORT):
-        print(f"🔌 WebSocket proxy running on ws://localhost:{WS_PORT}")
+    # We include a process_request handler for HTTP health checks
+    async with websockets.serve(
+        handle_websocket_client, 
+        "0.0.0.0", 
+        WS_PORT, 
+        process_request=handle_health_check
+    ):
+        print(f"🔌 WebSocket proxy running on port {WS_PORT}")
         # Run forever
         await asyncio.Future()
 

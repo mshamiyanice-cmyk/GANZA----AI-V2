@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: ganza-ai-backend
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    envVars:
+      - key: DEBUG
+        value: "true"
+      - key: DEFAULT_MODEL
+        value: gemini-live-2.5-flash-native-audio
+      - key: GCP_REGION
+        value: us-central1
+      - fromGroup: ganza-secrets # You can manage sensitive keys in a Secret Group on Render
+    healthCheckPath: /healthz
+    rootDirectory: gemini/multimodal-live-api/native-audio-websocket-demo-apps/react-demo-app
