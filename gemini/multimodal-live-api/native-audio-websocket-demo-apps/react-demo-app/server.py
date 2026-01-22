@@ -13,6 +13,7 @@ import json
 import ssl
 import certifi
 import os
+import http
 from pathlib import Path
 from websockets.legacy.server import WebSocketServerProtocol
 from websockets.legacy.protocol import WebSocketCommonProtocol
@@ -203,7 +204,7 @@ async def handle_health_check(path, request_headers):
     """
     if path == "/healthz":
         return (
-            ssl.HTTPStatus.OK,
+            http.HTTPStatus.OK,
             [("Content-Type", "text/plain"), ("Connection", "close")],
             b"OK\n",
         )
