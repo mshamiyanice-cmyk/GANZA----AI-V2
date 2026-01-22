@@ -4,6 +4,7 @@ services:
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: python server.py
+    plan: free
     envVars:
       - key: DEBUG
         value: "true"
@@ -11,6 +12,6 @@ services:
         value: gemini-live-2.5-flash-native-audio
       - key: GCP_REGION
         value: us-central1
-      - fromGroup: ganza-secrets # You can manage sensitive keys in a Secret Group on Render
+      # - fromGroup: ganza-secrets # Create this group in Render first!
     healthCheckPath: /healthz
     rootDirectory: gemini/multimodal-live-api/native-audio-websocket-demo-apps/react-demo-app
