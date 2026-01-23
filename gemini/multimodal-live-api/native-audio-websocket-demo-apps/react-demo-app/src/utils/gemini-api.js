@@ -259,6 +259,48 @@ export class GeminiLiveAPI {
 
   onReceiveMessage(messageEvent) {
     // console.log("Message received: ", messageEvent);
+
+    // Check if the message is binary (Blob) or text (JSON)
+    if (messageEvent.data instanceof Blob) {
+      // Handle binary audio data - DIRECT PROCESSING (no Base64)
+      messageEvent.data.arrayBuffer().then(buffer => {
+        let audioBuffer = buffer;
+
+        // Handle empty buffers
+        if (buffer.byteLength === 0) {
+          console.warn('Received empty audio chunk');
+          return;
+        }
+
+        // FIX: Handle odd-length PCM16 chunks (network fragmentation)
+        // Gemini sends latency-optimized chunks that may not align to 16-bit boundaries
+        if (buffer.byteLength % 2 !== 0) {
+          audioBuffer = buffer.slice(0, buffer.byteLength - 1);
+          console.log(`🔧 Byte alignment fix: ${buffer.byteLength} → ${buffer.byteLength - 1}`);
+        }
+
+        // Direct PCM16 to Float32 conversion (no Base64 overhead)
+        const int16Data = new Int16Array(audioBuffer);
+        const float32Data = new Float32Array(int16Data.length);
+
+        for (let i = 0; i < int16Data.length; i++) {
+          // Scale Int16 (-32768 to 32767) to Float32 (-1.0 to 1.0)
+          float32Data[i] = int16Data[i] / 32768.0;
+        }
+
+        // Send directly to AudioWorklet (bypass message wrapper for binary audio)
+        if (this.audioPlayer && this.audioPlayer.workletNode) {
+          this.audioPlayer.workletNode.port.postMessage(float32Data);
+        } else {
+          console.error('AudioPlayer not initialized');
+        }
+      }).catch(err => {
+        console.error('Failed to process audio buffer:', err);
+      });
+      return;
+    }
+
+    // Handle text/JSON messages
     const messageData = JSON.parse(messageEvent.data);
     const message = new MultimodalLiveResponseMessage(messageData);
 
