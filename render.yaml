@@ -1,7 +1,9 @@
 services:
   - type: web
-    name: ganza-ai-prod-server
-    runtime: python
+    name: ganza-backend
+    env: python
+    region: oregon
+    plan: free
     rootDirectory: gemini/multimodal-live-api/native-audio-websocket-demo-apps/react-demo-app
     buildCommand: pip install -r requirements.txt
     startCommand: python server.py
