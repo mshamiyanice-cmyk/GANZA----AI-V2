@@ -307,6 +307,9 @@ const LiveAPIDemo = () => {
       await audioPlayerRef.current.init();
       audioPlayerRef.current.setVolume(volume / 100);
 
+      // Attach audio player to client for direct binary audio handling
+      clientRef.current.audioPlayer = audioPlayerRef.current;
+
       setDebugInfo("Connected successfully");
     } catch (error) {
       console.error("Connection failed:", error);
