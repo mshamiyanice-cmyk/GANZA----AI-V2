@@ -1,13 +1,10 @@
 services:
   - type: web
-    name: ganza-backend-sovereign
-    runtime: python
-    plan: free
-    region: oregon
+    name: ganza-backend-server
+    env: python
     rootDirectory: gemini/multimodal-live-api/native-audio-websocket-demo-apps/react-demo-app
     buildCommand: pip install -r requirements.txt
     startCommand: python server.py
-    healthCheckPath: /healthz
     envVars:
       - key: GCP_PROJECT_ID
         value: ganza-ai-sovereign-2026
@@ -17,5 +14,3 @@ services:
         value: gemini-live-2.5-flash-native-audio
       - key: GOOGLE_APPLICATION_CREDENTIALS
         value: /etc/secrets/googlekey.json
-      - key: DEBUG
-        value: "true"
