@@ -20,11 +20,10 @@ from websockets.legacy.protocol import WebSocketCommonProtocol
 from websockets.exceptions import ConnectionClosed
 
 # Load environment variables
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-# Load .env file from the same directory as this script
-env_path = Path(__file__).parent / '.env'
-load_dotenv(dotenv_path=env_path)
+# Search for .env file starting from this directory and moving up
+load_dotenv(find_dotenv())
 
 # Authentication imports
 import google.auth
@@ -64,12 +63,30 @@ def generate_access_token():
                     del os.environ['GOOGLE_APPLICATION_CREDENTIALS']
             print("🔑 Using Application Default Credentials (ADC)")
         
-        # Get credentials - this will use ADC if GOOGLE_APPLICATION_CREDENTIALS is not set
+        # Fallback for Render Secret Files if GOOGLE_APPLICATION_CREDENTIALS is not set or not found
+        render_secret_default = "/etc/secrets/googlekey.json"
+        
+        # Scenario 1: Variable is not set - try the default Render secret path
+        if not GOOGLE_APPLICATION_CREDENTIALS:
+            if os.path.exists(render_secret_default):
+                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = render_secret_default
+                print(f"🔑 Auto-detected Render secret: {render_secret_default}")
+        # Scenario 2: Variable is set but file not found local to app - try Render secrets folder
+        elif not os.path.exists(GOOGLE_APPLICATION_CREDENTIALS):
+            alt_path = os.path.join("/etc/secrets", GOOGLE_APPLICATION_CREDENTIALS)
+            if os.path.exists(alt_path):
+                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = alt_path
+                print(f"🔑 Found secret at Render path: {alt_path}")
+
+        # Get credentials
         creds, project = google.auth.default()
         
         # Verify project matches if specified
         if GCP_PROJECT_ID and project and project != GCP_PROJECT_ID:
             print(f"⚠️ Warning: Credentials project ({project}) doesn't match GCP_PROJECT_ID ({GCP_PROJECT_ID})")
+            # If ADC project is empty/wrong, try to force the project from env
+            if not project:
+                project = GCP_PROJECT_ID
         
         if not creds.valid:
             print("🔄 Refreshing access token...")
