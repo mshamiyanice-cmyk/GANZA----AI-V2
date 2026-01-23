@@ -1,10 +1,11 @@
 services:
   - type: web
-    name: ganza-ai-backend
+    name: ganza-ai-backend-service
     runtime: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python server.py
-    plan: free
+    rootDirectory: gemini/multimodal-live-api/native-audio-websocket-demo-apps/react-demo-app
     envVars:
       - key: DEBUG
         value: "true"
@@ -12,6 +13,8 @@ services:
         value: gemini-live-2.5-flash-native-audio
       - key: GCP_REGION
         value: us-central1
-      # - fromGroup: ganza-secrets # Create this group in Render first!
+      - key: GCP_PROJECT_ID
+        value: ganza-ai-sovereign-2026
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: googlekey.json
     healthCheckPath: /healthz
-    rootDirectory: gemini/multimodal-live-api/native-audio-websocket-demo-apps/react-demo-app
