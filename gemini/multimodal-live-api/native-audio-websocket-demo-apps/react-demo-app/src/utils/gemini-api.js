@@ -177,6 +177,8 @@ export class GeminiLiveAPI {
     // LATENCY TRACKING - DISABLED (commented out)
     // this.latencyTracker = latencyTracker;
 
+    this.leftoverByte = null;
+
     console.log("Created Gemini Live API object: ", this);
   }
 
@@ -244,10 +246,15 @@ export class GeminiLiveAPI {
   }
 
   disconnect() {
+    this.resetAudioState();
     if (this.webSocket) {
       this.webSocket.close();
       this.connected = false;
     }
+  }
+
+  resetAudioState() {
+    this.leftoverByte = null;
   }
 
   sendMessage(message) {
@@ -264,23 +271,44 @@ export class GeminiLiveAPI {
     if (messageEvent.data instanceof Blob) {
       // Handle binary audio data - DIRECT PROCESSING (no Base64)
       messageEvent.data.arrayBuffer().then(buffer => {
-        let audioBuffer = buffer;
+        let workingBuffer;
+
+        // Prepend leftover byte from previous chunk if exists
+        if (this.leftoverByte !== null) {
+          const combined = new Uint8Array(1 + buffer.byteLength);
+          combined[0] = this.leftoverByte;
+          combined.set(new Uint8Array(buffer), 1);
+          workingBuffer = combined.buffer;
+          this.leftoverByte = null;
+          // console.log('[Audio] Prepended leftover byte, new length:', workingBuffer.byteLength);
+        } else {
+          workingBuffer = buffer;
+        }
 
         // Handle empty buffers
-        if (buffer.byteLength === 0) {
-          console.warn('Received empty audio chunk');
+        if (workingBuffer.byteLength === 0) {
+          // console.warn('Received empty audio chunk');
           return;
         }
 
-        // FIX: Handle odd-length PCM16 chunks (network fragmentation)
-        // Gemini sends latency-optimized chunks that may not align to 16-bit boundaries
-        if (buffer.byteLength % 2 !== 0) {
-          audioBuffer = buffer.slice(0, buffer.byteLength - 1);
-          console.log(`🔧 Byte alignment fix: ${buffer.byteLength} → ${buffer.byteLength - 1}`);
+        // Handle odd length - save last byte for next chunk to maintain PCM16 alignment
+        let processBuffer;
+        if (workingBuffer.byteLength % 2 !== 0) {
+          const bytes = new Uint8Array(workingBuffer);
+          this.leftoverByte = bytes[bytes.byteLength - 1];
+          processBuffer = workingBuffer.slice(0, workingBuffer.byteLength - 1);
+          // console.log('[Audio] Saved leftover byte, processing:', processBuffer.byteLength);
+        } else {
+          processBuffer = workingBuffer;
+        }
+
+        // Skip empty buffers after alignment
+        if (processBuffer.byteLength === 0) {
+          return;
         }
 
         // Direct PCM16 to Float32 conversion (no Base64 overhead)
-        const int16Data = new Int16Array(audioBuffer);
+        const int16Data = new Int16Array(processBuffer);
         const float32Data = new Float32Array(int16Data.length);
 
         for (let i = 0; i < int16Data.length; i++) {
