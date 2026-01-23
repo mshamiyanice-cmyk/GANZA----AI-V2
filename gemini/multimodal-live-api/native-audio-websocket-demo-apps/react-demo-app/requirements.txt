@@ -1,4 +1,4 @@
-websockets>=12.0
+aiohttp>=3.9.0
 google-auth>=2.23.0
 certifi>=2023.7.22
 requests>=2.31.0

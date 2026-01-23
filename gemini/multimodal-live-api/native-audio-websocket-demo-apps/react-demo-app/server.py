@@ -1,28 +1,16 @@
-#!/usr/bin/env python3
-"""
-WebSocket Proxy Server for GANZA AI Live API
-Handles authentication and proxies WebSocket connections.
-
-This server acts as a bridge between the browser client and the AI API,
-handling authentication automatically using default credentials.
-"""
-
 import asyncio
-import websockets
 import json
 import ssl
 import certifi
 import os
 import http
 from pathlib import Path
-from websockets.legacy.server import WebSocketServerProtocol
-from websockets.legacy.protocol import WebSocketCommonProtocol
-from websockets.exceptions import ConnectionClosed
+from urllib.parse import urlparse
+
+from aiohttp import web, WSMsgType, ClientSession, ClientWebSocketResponse
 
 # Load environment variables
 from dotenv import load_dotenv, find_dotenv
-
-# Search for .env file starting from this directory and moving up
 load_dotenv(find_dotenv())
 
 # Authentication imports
@@ -31,315 +19,150 @@ from google.auth.transport.requests import Request
 
 # Configuration from environment variables
 DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
-# Render uses 'PORT', local/manual uses 'WS_PORT'
 WS_PORT = int(os.getenv('PORT', os.getenv('WS_PORT', '8080')))
 GCP_PROJECT_ID = os.getenv('GCP_PROJECT_ID', '')
 GCP_REGION = os.getenv('GCP_REGION', 'us-central1')
 DEFAULT_MODEL = os.getenv('DEFAULT_MODEL', 'gemini-live-2.5-flash-native-audio')
-# Get credentials path, strip whitespace, use None if empty
 _creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '').strip()
 GOOGLE_APPLICATION_CREDENTIALS = _creds_path if _creds_path else None
-
 
 def generate_access_token():
     """Retrieves an access token using credentials from environment."""
     try:
-        # Use service account if path provided, otherwise use ADC
-        if GOOGLE_APPLICATION_CREDENTIALS:
-            # Verify the file exists
-            if not os.path.exists(GOOGLE_APPLICATION_CREDENTIALS):
-                raise FileNotFoundError(f"Service account file not found: {GOOGLE_APPLICATION_CREDENTIALS}")
-            # Set environment variable for google.auth to use
-            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = GOOGLE_APPLICATION_CREDENTIALS
-            print(f"🔑 Using service account: {GOOGLE_APPLICATION_CREDENTIALS}")
-        else:
-            # Ensure GOOGLE_APPLICATION_CREDENTIALS is not set to empty string (use ADC)
-            # If it's set to empty string in .env, it will be in os.environ as empty string
-            # We need to remove it so google.auth.default() uses ADC instead
-            if 'GOOGLE_APPLICATION_CREDENTIALS' in os.environ:
-                env_creds = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS', '').strip()
-                if not env_creds:
-                    # It's empty, remove it to use ADC
-                    del os.environ['GOOGLE_APPLICATION_CREDENTIALS']
-            print("🔑 Using Application Default Credentials (ADC)")
-        
-        # Fallback for Render Secret Files if GOOGLE_APPLICATION_CREDENTIALS is not set or not found
+        # 1. Path detection logic (Self-Healing)
         render_secret_default = "/etc/secrets/googlekey.json"
+        target_creds = GOOGLE_APPLICATION_CREDENTIALS
         
-        # Scenario 1: Variable is not set - try the default Render secret path
-        if not GOOGLE_APPLICATION_CREDENTIALS:
+        if not target_creds:
             if os.path.exists(render_secret_default):
-                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = render_secret_default
-                print(f"🔑 Auto-detected Render secret: {render_secret_default}")
-        # Scenario 2: Variable is set but file not found local to app - try Render secrets folder
-        elif not os.path.exists(GOOGLE_APPLICATION_CREDENTIALS):
-            alt_path = os.path.join("/etc/secrets", GOOGLE_APPLICATION_CREDENTIALS)
-            if os.path.exists(alt_path):
-                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = alt_path
-                print(f"🔑 Found secret at Render path: {alt_path}")
+                target_creds = render_secret_default
+                print(f"🔑 Auto-detected Render secret: {target_creds}")
+        
+        if target_creds:
+            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = target_creds
+            print(f"🔑 Using service account: {target_creds}")
 
-        # Get credentials
+        # 2. Get credentials with explicit scope (Auth Fix)
         scopes = ['https://www.googleapis.com/auth/cloud-platform']
         creds, project = google.auth.default(scopes=scopes)
         
-        # Verify project matches if specified
         if GCP_PROJECT_ID and project and project != GCP_PROJECT_ID:
-            print(f"⚠️ Warning: Credentials project ({project}) doesn't match GCP_PROJECT_ID ({GCP_PROJECT_ID})")
-            # If ADC project is empty/wrong, try to force the project from env
-            if not project:
-                project = GCP_PROJECT_ID
+            print(f"⚠️ Warning: Credentials project ({project}) mismatch with {GCP_PROJECT_ID}")
         
         if not creds.valid:
             print("🔄 Refreshing access token...")
             creds.refresh(Request())
         
-        print(f"✅ Access token generated for project: {project or GCP_PROJECT_ID or 'default'}")
         return creds.token
-    except FileNotFoundError as e:
-        print(f"❌ Error: {e}")
-        print(f"   Make sure the service account file path is correct in .env")
-        return None
     except Exception as e:
-        print(f"❌ Error generating access token: {e}")
-        if GOOGLE_APPLICATION_CREDENTIALS:
-            print(f"   Check if service account file exists: {GOOGLE_APPLICATION_CREDENTIALS}")
-            print(f"   Make sure the file path is correct and the service account has roles/aiplatform.user role")
-        else:
-            print("   Make sure you're logged in with: gcloud auth application-default login")
-            print("   Run: gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform")
+        print(f"❌ Auth Error: {e}")
         return None
 
+# =============================================================================
+# PROXY CORE
+# =============================================================================
 
-async def proxy_task(
-    source_websocket: WebSocketCommonProtocol,
-    destination_websocket: WebSocketCommonProtocol,
-    is_server: bool,
-) -> None:
-    """
-    Forwards messages from source_websocket to destination_websocket.
+async def proxy_bidirectional(ws_client, ws_server):
+    """Bidirectional proxy between browser and Gemini."""
+    async def client_to_server():
+        async for msg in ws_client:
+            if msg.type == WSMsgType.TEXT:
+                await ws_server.send_str(msg.data)
+            elif msg.type == WSMsgType.BINARY:
+                await ws_server.send_bytes(msg.data)
+            elif msg.type == WSMsgType.CLOSE:
+                break
 
-    Args:
-        source_websocket: The WebSocket connection to receive messages from.
-        destination_websocket: The WebSocket connection to send messages to.
-        is_server: True if source is server side, False otherwise.
-    """
+    async def server_to_client():
+        async for msg in ws_server:
+            if msg.type == WSMsgType.TEXT:
+                await ws_client.send_str(msg.data)
+            elif msg.type == WSMsgType.BINARY:
+                await ws_client.send_bytes(msg.data)
+            elif msg.type == WSMsgType.CLOSE:
+                break
+
+    await asyncio.gather(client_to_server(), server_to_client())
+
+# =============================================================================
+# HANDLERS
+# =============================================================================
+
+async def websocket_handler(request):
+    """Handles WebSocket connections and proxies to Gemini."""
+    ws_client = web.WebSocketResponse()
+    await ws_client.prepare(request)
+    
+    print("🔌 New client connection...")
+    
     try:
-        async for message in source_websocket:
-            try:
-                data = json.loads(message)
-                if DEBUG:
-                    print(f"Proxying from {'server' if is_server else 'client'}: {data}")
-                await destination_websocket.send(json.dumps(data))
-            except Exception as e:
-                print(f"Error processing message: {e}")
-    except ConnectionClosed as e:
-        print(
-            f"{'Server' if is_server else 'Client'} connection closed: {e.code} - {e.reason}"
-        )
-    except Exception as e:
-        print(f"Unexpected error in proxy_task: {e}")
-    finally:
-        await destination_websocket.close()
-
-
-async def create_proxy(
-    client_websocket: WebSocketCommonProtocol, bearer_token: str, service_url: str
-) -> None:
-    """
-    Establishes a WebSocket connection to the Gemini server and creates bidirectional proxy.
-
-    Args:
-        client_websocket: The WebSocket connection of the client.
-        bearer_token: The bearer token for authentication with the server.
-        service_url: The url of the service to connect to.
-    """
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {bearer_token}",
-    }
-
-    # Create SSL context with certifi certificates
-    ssl_context = ssl.create_default_context(cafile=certifi.where())
-
-    print(f"Connecting to Gemini API...")
-    if DEBUG:
-        print(f"Service URL: {service_url}")
-
-    try:
-        async with websockets.connect(
-            service_url,
-            additional_headers=headers,
-            ssl=ssl_context
-        ) as server_websocket:
-            print(f"✅ Connected to Gemini API")
-
-            # Create bidirectional proxy tasks
-            client_to_server_task = asyncio.create_task(
-                proxy_task(client_websocket, server_websocket, is_server=False)
-            )
-            server_to_client_task = asyncio.create_task(
-                proxy_task(server_websocket, client_websocket, is_server=True)
-            )
-
-            # Wait for either task to complete
-            done, pending = await asyncio.wait(
-                [client_to_server_task, server_to_client_task],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-
-            # Cancel the remaining task
-            for task in pending:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-
-            # Close connections
-            try:
-                await server_websocket.close()
-            except:
-                pass
-
-            try:
-                await client_websocket.close()
-            except:
-                pass
-
-    except ConnectionClosed as e:
-        print(f"Server connection closed unexpectedly: {e.code} - {e.reason}")
-        if not client_websocket.closed:
-            await client_websocket.close(code=e.code, reason=e.reason)
-    except Exception as e:
-        print(f"Failed to connect to Gemini API: {e}")
-        if not client_websocket.closed:
-            await client_websocket.close(code=1008, reason="Upstream connection failed")
-
-
-async def handle_health_check(path, request_headers):
-    """
-    Handle HTTP requests for health checks (Render compatibility).
-    """
-    # Render's health checker often probes / or /healthz
-    if path == "/healthz" or path == "/":
-        return (
-            http.HTTPStatus.OK,
-            [
-                ("Content-Type", "text/plain"),
-                ("Connection", "close"),
-                ("Access-Control-Allow-Origin", "*"),
-            ],
-            b"OK\n",
-        )
-    return None
-
-
-async def handle_websocket_client(client_websocket: WebSocketServerProtocol) -> None:
-    """
-    Handles a new WebSocket client connection.
-
-    Expects first message with optional bearer_token and service_url.
-    If no bearer_token provided, generates one using Google default credentials.
-
-    Args:
-        client_websocket: The WebSocket connection of the client.
-    """
-    print("🔌 New WebSocket client connection...")
-    try:
-        # Wait for the first message from the client
-        service_setup_message = await asyncio.wait_for(
-            client_websocket.recv(), timeout=10.0
-        )
-        service_setup_message_data = json.loads(service_setup_message)
-
-        bearer_token = service_setup_message_data.get("bearer_token")
-        service_url = service_setup_message_data.get("service_url")
-
-        # If no bearer token provided, generate one using default credentials
+        # Initial setup message
+        msg = await ws_client.receive()
+        if msg.type != WSMsgType.TEXT:
+            await ws_client.close(code=1008)
+            return ws_client
+            
+        data = json.loads(msg.data)
+        bearer_token = data.get("bearer_token")
+        service_url = data.get("service_url")
+        
+        # 1. Security Validation (Gemini Fix)
+        if not service_url:
+            await ws_client.close(code=1008, message=b"Service URL missing")
+            return ws_client
+            
+        allowed_host = f"{GCP_REGION}-aiplatform.googleapis.com"
+        parsed = urlparse(service_url)
+        if parsed.hostname != allowed_host:
+            print(f"❌ Security Block: Invalid host {parsed.hostname}")
+            await ws_client.close(code=1008, message=b"Unauthorized Service URL")
+            return ws_client
+            
+        # 2. Auth generation (Self-Healing)
         if not bearer_token:
-            print("🔑 Generating access token using default credentials...")
             bearer_token = generate_access_token()
             if not bearer_token:
-                print("❌ Failed to generate access token")
-                await client_websocket.close(
-                    code=1008, reason="Authentication failed"
-                )
-                return
-            print("✅ Access token generated")
+                await ws_client.close(code=1008, message=b"Auth failed")
+                return ws_client
 
-        if not service_url:
-            print("❌ Error: Service URL is missing")
-            await client_websocket.close(
-                code=1008, reason="Service URL is required"
-            )
-            return
-
-        await create_proxy(client_websocket, bearer_token, service_url)
-
-    except asyncio.TimeoutError:
-        print("⏱️ Timeout waiting for the first message from the client")
-        await client_websocket.close(code=1008, reason="Timeout")
-    except json.JSONDecodeError as e:
-        print(f"❌ Invalid JSON in first message: {e}")
-        await client_websocket.close(code=1008, reason="Invalid JSON")
+        # 3. Connection to Gemini
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {bearer_token}",
+        }
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+        
+        async with ClientSession() as session:
+            async with session.ws_connect(service_url, headers=headers, ssl=ssl_context) as ws_server:
+                print("✅ Connected to Gemini API")
+                await proxy_bidirectional(ws_client, ws_server)
+                
     except Exception as e:
-        print(f"❌ Error handling client: {e}")
-        if not client_websocket.closed:
-            await client_websocket.close(code=1011, reason="Internal error")
+        print(f"❌ Proxy Error: {e}")
+    return ws_client
 
+async def health_check(request):
+    """Responds to GET/HEAD health checks (Claude Fix)."""
+    return web.Response(text="OK\n", status=200)
 
-async def start_websocket_server():
-    """Start the WebSocket proxy server."""
-    # We include a process_request handler for HTTP health checks
-    async with websockets.serve(
-        handle_websocket_client, 
-        "0.0.0.0", 
-        WS_PORT, 
-        process_request=handle_health_check
-    ):
-        print(f"🔌 WebSocket proxy running on port {WS_PORT}")
-        # Run forever
-        await asyncio.Future()
+async def root_router(request):
+    """Routes based on Upgrade header."""
+    if request.headers.get('Upgrade', '').lower() == 'websocket':
+        return await websocket_handler(request)
+    return await health_check(request)
 
+# =============================================================================
+# APP SETUP
+# =============================================================================
 
-async def main():
-    """
-    Starts the WebSocket server.
-    """
-    # Validate configuration
-    if not GCP_PROJECT_ID:
-        print("⚠️ Warning: GCP_PROJECT_ID not set in .env file")
-        print("   The frontend will need to provide project ID in the connection message")
-    
-    # Test authentication on startup
-    print("🔍 Testing authentication...")
-    token = generate_access_token()
-    if not token:
-        print("❌ Authentication test failed. Please check your credentials.")
-        print("   See .env.example for configuration options")
-        return
-    
-    print(f"""
-╔════════════════════════════════════════════════════════════╗
-║     Gemini Live API Proxy Server (Vertex AI)              ║
-╠════════════════════════════════════════════════════════════╣
-║                                                            ║
-║  🔌 WebSocket Proxy: ws://localhost:{WS_PORT:<5}                   ║
-║  📁 Project ID: {GCP_PROJECT_ID or '(from client)':<35} ║
-║  🌍 Region: {GCP_REGION:<43} ║
-║  🤖 Default Model: {DEFAULT_MODEL:<32} ║
-║                                                            ║
-║  Authentication:                                           ║
-║  {'• Service Account: ' + GOOGLE_APPLICATION_CREDENTIALS if GOOGLE_APPLICATION_CREDENTIALS else '• Using Application Default Credentials (ADC)':<54} ║
-║                                                            ║
-╚════════════════════════════════════════════════════════════╝
-""")
-
-    await start_websocket_server()
-
+def create_app():
+    app = web.Application()
+    app.router.add_get('/', root_router)
+    app.router.add_get('/healthz', health_check)
+    app.router.add_get('/ws', websocket_handler)
+    return app
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n👋 Servers stopped")
+    print(f"🚀 Starting Master Backend on port {WS_PORT}")
+    app = create_app()
+    web.run_app(app, host='0.0.0.0', port=WS_PORT)
