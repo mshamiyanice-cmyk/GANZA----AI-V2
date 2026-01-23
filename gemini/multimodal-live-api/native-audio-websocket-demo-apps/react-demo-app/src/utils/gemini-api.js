@@ -259,28 +259,53 @@ export class GeminiLiveAPI {
 
   onReceiveMessage(messageEvent) {
     // console.log("Message received: ", messageEvent);
+
+    // Check if the message is binary (Blob) or text (JSON)
+    if (messageEvent.data instanceof Blob) {
+      // Handle binary audio data - convert Blob to appropriate format
+      messageEvent.data.arrayBuffer().then(buffer => {
+        const message = new MultimodalLiveResponseMessage({
+          serverContent: {
+            modelTurn: {
+              parts: [{
+                inlineData: {
+                  mimeType: "audio/pcm",
+                  data: buffer
+                }
+              }]
+            }
+          }
+        });
+        this.onReceiveResponse(message);
+      }).catch(err => {
+        console.error("Error processing audio blob:", err);
+      });
+      return;
+    }
+
+    // Handle text/JSON messages
     const messageData = JSON.parse(messageEvent.data);
     const message = new MultimodalLiveResponseMessage(messageData);
-    
+
     // LATENCY TRACKING - DISABLED (commented out)
     // Detect when model generation starts (server-side)
     // Check if modelTurn exists in raw data (indicates generation started)
     // if (messageData?.serverContent?.modelTurn && !this.latencyTracker.modelGenerationStartTime) {
     //   this.latencyTracker.recordModelGenerationStart();
     // }
-    
+
     // LATENCY TRACKING - DISABLED (commented out)
     // Detect when user finishes speaking (Metric 1)
     // if (message.type === MultimodalLiveResponseType.INPUT_TRANSCRIPTION && message.data?.finished) {
     //   this.latencyTracker.recordUserFinishedSpeaking();
     // }
-    
+
     // LATENCY TRACKING - DISABLED (commented out)
     // Detect when first audio chunk is generated (Metric 3 - server-side)
     // if (message.type === MultimodalLiveResponseType.AUDIO) {
     //   this.latencyTracker.recordAudioChunkGenerated();
     // }
-    
+
     this.onReceiveResponse(message);
   }
 

@@ -18,11 +18,11 @@ const LiveAPIDemo = () => {
 
   // Configuration State
   const [proxyUrl, setProxyUrl] = useState(
-    getAppSetting("proxyUrl", "wss://ganza-ai-v2.onrender.com/ws")
+    getAppSetting("proxyUrl", "ws://localhost:8080")
   );
-  const [projectId, setProjectId] = useState(getAppSetting("projectId", "ganza-ai-sovereign-2026"));
+  const [projectId, setProjectId] = useState(getAppSetting("projectId", ""));
   const [model, setModel] = useState(
-    getAppSetting("model", "gemini-live-2.5-flash-native-audio")
+    getAppSetting("model", "gemini-2.5-flash-native-audio-preview-12-2025")
   );
 
   useEffect(() => {
