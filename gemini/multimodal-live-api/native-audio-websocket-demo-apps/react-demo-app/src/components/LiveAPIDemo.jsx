@@ -298,17 +298,19 @@ const LiveAPIDemo = () => {
         disconnect();
       };
 
-      await clientRef.current.connect();
-
-      audioStreamerRef.current = new AudioStreamer(clientRef.current);
-      videoStreamerRef.current = new VideoStreamer(clientRef.current);
-      screenCaptureRef.current = new ScreenCapture(clientRef.current);
+      // 1. Initialize Audio Player first to be ready for incoming data
       audioPlayerRef.current = new AudioPlayer();
       await audioPlayerRef.current.init();
       audioPlayerRef.current.setVolume(volume / 100);
-
-      // Attach audio player to client for direct binary audio handling
       clientRef.current.audioPlayer = audioPlayerRef.current;
+
+      // 2. Setup peripheral streamers
+      audioStreamerRef.current = new AudioStreamer(clientRef.current);
+      videoStreamerRef.current = new VideoStreamer(clientRef.current);
+      screenCaptureRef.current = new ScreenCapture(clientRef.current);
+
+      // 3. Connect to the WebSocket (now audioPlayer is attached)
+      await clientRef.current.connect();
 
       setDebugInfo("Connected successfully");
     } catch (error) {

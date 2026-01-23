@@ -267,64 +267,51 @@ export class GeminiLiveAPI {
   onReceiveMessage(messageEvent) {
     // console.log("Message received: ", messageEvent);
 
-    // Check if the message is binary (Blob) or text (JSON)
-    if (messageEvent.data instanceof Blob) {
-      // Handle binary audio data - DIRECT PROCESSING (no Base64)
-      messageEvent.data.arrayBuffer().then(buffer => {
-        let workingBuffer;
+    // Check if the message is binary (ArrayBuffer) or text (JSON)
+    if (messageEvent.data instanceof ArrayBuffer) {
+      // Handle binary audio data - SYNCHRONOUS PROCESSING (no race condition)
+      const buffer = messageEvent.data;
+      let workingBuffer;
 
-        // Prepend leftover byte from previous chunk if exists
-        if (this.leftoverByte !== null) {
-          const combined = new Uint8Array(1 + buffer.byteLength);
-          combined[0] = this.leftoverByte;
-          combined.set(new Uint8Array(buffer), 1);
-          workingBuffer = combined.buffer;
-          this.leftoverByte = null;
-          // console.log('[Audio] Prepended leftover byte, new length:', workingBuffer.byteLength);
-        } else {
-          workingBuffer = buffer;
-        }
+      // Prepend leftover byte from previous chunk if exists
+      if (this.leftoverByte !== null) {
+        const combined = new Uint8Array(1 + buffer.byteLength);
+        combined[0] = this.leftoverByte;
+        combined.set(new Uint8Array(buffer), 1);
+        workingBuffer = combined.buffer;
+        this.leftoverByte = null;
+      } else {
+        workingBuffer = buffer;
+      }
 
-        // Handle empty buffers
-        if (workingBuffer.byteLength === 0) {
-          // console.warn('Received empty audio chunk');
-          return;
-        }
+      if (workingBuffer.byteLength === 0) return;
 
-        // Handle odd length - save last byte for next chunk to maintain PCM16 alignment
-        let processBuffer;
-        if (workingBuffer.byteLength % 2 !== 0) {
-          const bytes = new Uint8Array(workingBuffer);
-          this.leftoverByte = bytes[bytes.byteLength - 1];
-          processBuffer = workingBuffer.slice(0, workingBuffer.byteLength - 1);
-          // console.log('[Audio] Saved leftover byte, processing:', processBuffer.byteLength);
-        } else {
-          processBuffer = workingBuffer;
-        }
+      // Handle odd length - save last byte for next chunk to maintain PCM16 alignment
+      let processBuffer;
+      if (workingBuffer.byteLength % 2 !== 0) {
+        const bytes = new Uint8Array(workingBuffer);
+        this.leftoverByte = bytes[bytes.byteLength - 1];
+        processBuffer = workingBuffer.slice(0, workingBuffer.byteLength - 1);
+      } else {
+        processBuffer = workingBuffer;
+      }
 
-        // Skip empty buffers after alignment
-        if (processBuffer.byteLength === 0) {
-          return;
-        }
+      if (processBuffer.byteLength === 0) return;
 
-        // Direct PCM16 to Float32 conversion (no Base64 overhead)
-        const int16Data = new Int16Array(processBuffer);
-        const float32Data = new Float32Array(int16Data.length);
+      // Robust PCM16 to Float32 conversion using DataView (guaranteed Little Endian)
+      const dataView = new DataView(processBuffer);
+      const numSamples = processBuffer.byteLength / 2;
+      const float32Data = new Float32Array(numSamples);
 
-        for (let i = 0; i < int16Data.length; i++) {
-          // Scale Int16 (-32768 to 32767) to Float32 (-1.0 to 1.0)
-          float32Data[i] = int16Data[i] / 32768.0;
-        }
+      for (let i = 0; i < numSamples; i++) {
+        // Read as Int16 Little Endian (true) and scale to Float32
+        float32Data[i] = dataView.getInt16(i * 2, true) / 32768.0;
+      }
 
-        // Send directly to AudioWorklet (bypass message wrapper for binary audio)
-        if (this.audioPlayer && this.audioPlayer.workletNode) {
-          this.audioPlayer.workletNode.port.postMessage(float32Data);
-        } else {
-          console.error('AudioPlayer not initialized');
-        }
-      }).catch(err => {
-        console.error('Failed to process audio buffer:', err);
-      });
+      // Send directly to AudioWorklet
+      if (this.audioPlayer && this.audioPlayer.workletNode) {
+        this.audioPlayer.workletNode.port.postMessage(float32Data);
+      }
       return;
     }
 
@@ -379,6 +366,7 @@ export class GeminiLiveAPI {
       this.onConnectionStarted();
     };
 
+    this.webSocket.binaryType = 'arraybuffer';
     this.webSocket.onmessage = this.onReceiveMessage.bind(this);
   }
 

@@ -42,8 +42,8 @@ export class AudioStreamer {
       // Create audio context at 16kHz
       this.audioContext = new (window.AudioContext ||
         window.webkitAudioContext)({
-        sampleRate: this.sampleRate,
-      });
+          sampleRate: this.sampleRate,
+        });
 
       // Load the audio worklet module
       await this.audioContext.audioWorklet.addModule(
@@ -406,18 +406,24 @@ export class AudioPlayer {
       // Create audio context at 24kHz to match Gemini
       this.audioContext = new (window.AudioContext ||
         window.webkitAudioContext)({
-        sampleRate: this.sampleRate,
-      });
+          sampleRate: this.sampleRate,
+        });
 
       // Load the audio worklet from external file
       await this.audioContext.audioWorklet.addModule(
         "/audio-processors/playback.worklet.js"
       );
 
-      // Create worklet node
+      // Create worklet node with hardware sample rate for interpolation resampler
       this.workletNode = new AudioWorkletNode(
         this.audioContext,
-        "pcm-processor"
+        "pcm-processor",
+        {
+          processorOptions: {
+            sampleRate: this.audioContext.sampleRate,
+            bufferMs: 60 // Base jitter buffer, HighFidelityProcessor adds pre-roll
+          }
+        }
       );
 
       // Create gain node for volume control

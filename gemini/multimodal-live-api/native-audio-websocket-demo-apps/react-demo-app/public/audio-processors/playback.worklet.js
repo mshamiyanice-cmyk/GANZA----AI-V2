@@ -1,63 +1,113 @@
 /**
- * Audio Playback Worklet Processor for playing PCM audio
+ * High-Fidelity Jitter Buffer & Resampling Processor
+ * FIXED: Proper frame tracking with bounded indices to prevent cumulative drift.
  */
 
-class PCMProcessor extends AudioWorkletProcessor {
-  constructor() {
+class HighFidelityProcessor extends AudioWorkletProcessor {
+  constructor(options) {
     super();
-    this.audioQueue = [];
+
+    // 1. Identify Sample Rates
+    this.sourceRate = 24000;
+    this.hardwareRate = options.processorOptions?.sampleRate || 48000;
+    this.resampleRatio = this.sourceRate / this.hardwareRate;
+
+    // 2. Buffer Configuration (250ms capacity)
+    const bufferMs = 250;
+    this.bufferFrames = Math.ceil((this.sourceRate * bufferMs) / 1000);
+    // Use power of 2 for fast bitwise modulo
+    this.bufferLength = Math.pow(2, Math.ceil(Math.log2(this.bufferFrames * 2)));
+    this.bufferMask = this.bufferLength - 1;
+    this.buffer = new Float32Array(this.bufferLength);
+
+    // 3. Monotonic Tracking (Prevents Drift)
+    this.writeIndex = 0;        // Integer [0, mask]
+    this.readPosition = 0;      // Float, used for interpolation
+    this.framesWritten = 0;     // Monotonic total
+    this.framesRead = 0;        // Monotonic total
+
+    // 4. State Machine (100ms Pre-roll)
+    this.preRollFrames = Math.floor((this.sourceRate * 100) / 1000);
+    this.isBuffering = true;
 
     this.port.onmessage = (event) => {
       if (event.data === "interrupt") {
-        // Clear the queue on interrupt
-        this.audioQueue = [];
+        this.reset();
       } else if (event.data instanceof Float32Array) {
-        // Add audio data to the queue
-        this.audioQueue.push(event.data);
+        this.enqueue(event.data);
       }
     };
+  }
+
+  reset() {
+    this.buffer.fill(0);
+    this.writeIndex = 0;
+    this.readPosition = 0;
+    this.framesWritten = 0;
+    this.framesRead = 0;
+    this.isBuffering = true;
+  }
+
+  enqueue(audioData) {
+    for (let i = 0; i < audioData.length; i++) {
+      this.buffer[this.writeIndex] = audioData[i];
+      this.writeIndex = (this.writeIndex + 1) & this.bufferMask;
+      this.framesWritten++;
+    }
+
+    const framesAvailable = this.framesWritten - this.framesRead;
+
+    if (this.isBuffering && framesAvailable >= this.preRollFrames) {
+      this.isBuffering = false;
+      this.port.postMessage({ type: 'started', buffered: framesAvailable });
+    }
   }
 
   process(inputs, outputs, parameters) {
     const output = outputs[0];
     if (output.length === 0) return true;
-
     const channel = output[0];
-    let outputIndex = 0;
 
-    // Fill the output buffer from the queue
-    while (outputIndex < channel.length && this.audioQueue.length > 0) {
-      const currentBuffer = this.audioQueue[0];
+    const framesAvailable = this.framesWritten - this.framesRead;
+    const framesNeeded = Math.ceil(channel.length * this.resampleRatio) + 1;
 
-      if (!currentBuffer || currentBuffer.length === 0) {
-        this.audioQueue.shift();
-        continue;
+    if (this.isBuffering || framesAvailable < framesNeeded) {
+      if (!this.isBuffering && framesAvailable < framesNeeded) {
+        this.isBuffering = true;
+        this.port.postMessage({ type: 'underrun', available: framesAvailable, needed: framesNeeded });
       }
-
-      const remainingOutput = channel.length - outputIndex;
-      const remainingBuffer = currentBuffer.length;
-      const copyLength = Math.min(remainingOutput, remainingBuffer);
-
-      // Copy audio data to output
-      for (let i = 0; i < copyLength; i++) {
-        channel[outputIndex++] = currentBuffer[i];
-      }
-
-      // Update or remove the current buffer
-      if (copyLength < remainingBuffer) {
-        this.audioQueue[0] = currentBuffer.slice(copyLength);
-      } else {
-        this.audioQueue.shift();
-      }
+      channel.fill(0);
+      return true;
     }
 
-    // Fill remaining output with silence
-    while (outputIndex < channel.length) {
-      channel[outputIndex++] = 0;
+    const startReadPosition = this.readPosition;
+
+    // Linear Interpolation Resampling Loop
+    for (let i = 0; i < channel.length; i++) {
+      const idx = Math.floor(this.readPosition);
+      const fraction = this.readPosition - idx;
+
+      const curIdx = idx & this.bufferMask;
+      const nextIdx = (idx + 1) & this.bufferMask;
+
+      const curSample = this.buffer[curIdx];
+      const nextSample = this.buffer[nextIdx];
+
+      channel[i] = curSample * (1 - fraction) + nextSample * fraction;
+
+      this.readPosition += this.resampleRatio;
+    }
+
+    const framesConsumed = Math.floor(this.readPosition) - Math.floor(startReadPosition);
+    this.framesRead += framesConsumed;
+
+    // Normalize readPosition to prevent floating point precision loss
+    if (this.readPosition > this.bufferLength * 2) {
+      this.readPosition -= this.bufferLength;
     }
 
     return true;
   }
 }
 
-registerProcessor("pcm-processor", PCMProcessor);
+registerProcessor("pcm-processor", HighFidelityProcessor);
