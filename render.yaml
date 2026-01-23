@@ -1,10 +1,13 @@
 services:
   - type: web
-    name: ganza-ai-backend
+    name: ganza-backend-sovereign
     runtime: python
+    plan: free
+    region: oregon
     rootDirectory: gemini/multimodal-live-api/native-audio-websocket-demo-apps/react-demo-app
     buildCommand: pip install -r requirements.txt
     startCommand: python server.py
+    healthCheckPath: /healthz
     envVars:
       - key: GCP_PROJECT_ID
         value: ganza-ai-sovereign-2026
