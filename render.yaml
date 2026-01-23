@@ -1,8 +1,8 @@
 version: "1"
 services:
   - type: web
-    name: ganza
-    runtime: python
+    name: ganza-ai-backend-sovereign-final
+    env: python
     plan: free
     rootDirectory: gemini/multimodal-live-api/native-audio-websocket-demo-apps/react-demo-app
     buildCommand: pip install -r requirements.txt
