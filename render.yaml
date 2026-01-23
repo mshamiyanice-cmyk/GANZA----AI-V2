@@ -1,9 +1,8 @@
 services:
   - type: web
-    name: ganza-ai-app
-    rootDirectory: gemini/multimodal-live-api/native-audio-websocket-demo-apps/react-demo-app
+    name: ganza-ai-prod-server
     runtime: python
-    plan: free
+    rootDirectory: gemini/multimodal-live-api/native-audio-websocket-demo-apps/react-demo-app
     buildCommand: pip install -r requirements.txt
     startCommand: python server.py
     envVars:
@@ -17,4 +16,3 @@ services:
         value: /etc/secrets/googlekey.json
       - key: DEBUG
         value: "true"
-    healthCheckPath: /healthz
