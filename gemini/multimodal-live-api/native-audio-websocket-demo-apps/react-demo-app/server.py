@@ -79,7 +79,8 @@ def generate_access_token():
                 print(f"🔑 Found secret at Render path: {alt_path}")
 
         # Get credentials
-        creds, project = google.auth.default()
+        scopes = ['https://www.googleapis.com/auth/cloud-platform']
+        creds, project = google.auth.default(scopes=scopes)
         
         # Verify project matches if specified
         if GCP_PROJECT_ID and project and project != GCP_PROJECT_ID:
