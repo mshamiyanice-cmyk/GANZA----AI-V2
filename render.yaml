@@ -1,7 +1,18 @@
 services:
   - type: web
-    name: ganza-live-api
+    name: ganza-voice-server
     runtime: python
-    rootDirectory: gemini/multimodal-live-api/native-audio-websocket-demo-apps/react-demo-app
-    buildCommand: pip install -r requirements.txt
-    startCommand: python server.py
+    plan: free
+    buildCommand: "cd gemini/multimodal-live-api/native-audio-websocket-demo-apps/react-demo-app && pip install -r requirements.txt"
+    startCommand: "cd gemini/multimodal-live-api/native-audio-websocket-demo-apps/react-demo-app && python server.py"
+    envVars:
+      - key: GCP_PROJECT_ID
+        value: ganza-ai-sovereign-2026
+      - key: GCP_REGION
+        value: us-central1
+      - key: DEFAULT_MODEL
+        value: gemini-live-2.5-flash-native-audio
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: /etc/secrets/googlekey.json
+      - key: DEBUG
+        value: "true"
