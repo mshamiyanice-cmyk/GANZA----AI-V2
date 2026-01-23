@@ -267,51 +267,9 @@ export class GeminiLiveAPI {
   onReceiveMessage(messageEvent) {
     // console.log("Message received: ", messageEvent);
 
-    // Check if the message is binary (ArrayBuffer) or text (JSON)
+    // Check if the message is binary (ArrayBuffer)
     if (messageEvent.data instanceof ArrayBuffer) {
-      // Handle binary audio data - SYNCHRONOUS PROCESSING (no race condition)
-      const buffer = messageEvent.data;
-      let workingBuffer;
-
-      // Prepend leftover byte from previous chunk if exists
-      if (this.leftoverByte !== null) {
-        const combined = new Uint8Array(1 + buffer.byteLength);
-        combined[0] = this.leftoverByte;
-        combined.set(new Uint8Array(buffer), 1);
-        workingBuffer = combined.buffer;
-        this.leftoverByte = null;
-      } else {
-        workingBuffer = buffer;
-      }
-
-      if (workingBuffer.byteLength === 0) return;
-
-      // Handle odd length - save last byte for next chunk to maintain PCM16 alignment
-      let processBuffer;
-      if (workingBuffer.byteLength % 2 !== 0) {
-        const bytes = new Uint8Array(workingBuffer);
-        this.leftoverByte = bytes[bytes.byteLength - 1];
-        processBuffer = workingBuffer.slice(0, workingBuffer.byteLength - 1);
-      } else {
-        processBuffer = workingBuffer;
-      }
-
-      if (processBuffer.byteLength === 0) return;
-
-      // Robust PCM16 to Float32 conversion using DataView (guaranteed Little Endian)
-      const dataView = new DataView(processBuffer);
-      const numSamples = processBuffer.byteLength / 2;
-      const float32Data = new Float32Array(numSamples);
-
-      for (let i = 0; i < numSamples; i++) {
-        // Read as Int16 Little Endian (true) and scale to Float32
-        float32Data[i] = dataView.getInt16(i * 2, true) / 32768.0;
-      }
-
-      // Send directly to AudioWorklet
-      if (this.audioPlayer && this.audioPlayer.workletNode) {
-        this.audioPlayer.workletNode.port.postMessage(float32Data);
-      }
+      this.processAudioData(messageEvent.data);
       return;
     }
 
@@ -338,7 +296,73 @@ export class GeminiLiveAPI {
     //   this.latencyTracker.recordAudioChunkGenerated();
     // }
 
+    // Log the type of response received
+    // console.log("Received response type:", message.type);
+
+    // Level 2 Patch: "Ghost Path" Protection
+    // If the audio arrived via JSON/Base64, route it through the Unified Ingestor
+    if (message.type === MultimodalLiveResponseType.AUDIO && typeof message.data === 'string') {
+      try {
+        const binaryString = atob(message.data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        this.processAudioData(bytes.buffer);
+      } catch (e) {
+        console.error("Failed to decode Base64 audio from JSON path:", e);
+      }
+      return; // Do not call onReceiveResponse for audio, it's handled
+    }
+
     this.onReceiveResponse(message);
+  }
+
+  /**
+   * Unified Audio Ingestor (Level 2 Fix)
+   * Ensures 100% byte-alignment for PCM16 samples from any source.
+   */
+  processAudioData(buffer) {
+    let workingBuffer;
+
+    // 1. Prepend leftover byte from previous chunk if exists
+    if (this.leftoverByte !== null) {
+      const combined = new Uint8Array(1 + buffer.byteLength);
+      combined[0] = this.leftoverByte;
+      combined.set(new Uint8Array(buffer), 1);
+      workingBuffer = combined.buffer;
+      this.leftoverByte = null;
+    } else {
+      workingBuffer = buffer;
+    }
+
+    if (workingBuffer.byteLength === 0) return;
+
+    // 2. Handle odd-length buffers (PCM16 alignment guard)
+    let processBuffer;
+    if (workingBuffer.byteLength % 2 !== 0) {
+      const bytes = new Uint8Array(workingBuffer);
+      this.leftoverByte = bytes[bytes.byteLength - 1];
+      processBuffer = workingBuffer.slice(0, workingBuffer.byteLength - 1);
+    } else {
+      processBuffer = workingBuffer;
+    }
+
+    if (processBuffer.byteLength === 0) return;
+
+    // 3. Robust decoding using DataView (Little Endian)
+    const dataView = new DataView(processBuffer);
+    const numSamples = processBuffer.byteLength / 2;
+    const float32Data = new Float32Array(numSamples);
+
+    for (let i = 0; i < numSamples; i++) {
+      float32Data[i] = dataView.getInt16(i * 2, true) / 32768.0;
+    }
+
+    // 4. Send directly to AudioWorklet
+    if (this.audioPlayer && this.audioPlayer.workletNode) {
+      this.audioPlayer.workletNode.port.postMessage(float32Data);
+    }
   }
 
   setupWebSocketToService() {

@@ -44,6 +44,7 @@ const LiveAPIDemo = () => {
     useState(true);
   const [enableOutputTranscription, setEnableOutputTranscription] =
     useState(true);
+  const [sourceRate, setSourceRate] = useState(24000); // Level 2: Default 24kHz
 
   // Activity Detection State
   const [disableActivityDetection, setDisableActivityDetection] =
@@ -300,6 +301,7 @@ const LiveAPIDemo = () => {
 
       // 1. Initialize Audio Player first to be ready for incoming data
       audioPlayerRef.current = new AudioPlayer();
+      audioPlayerRef.current.sourceRate = sourceRate; // Pass initial preference
       await audioPlayerRef.current.init();
       audioPlayerRef.current.setVolume(volume / 100);
       clientRef.current.audioPlayer = audioPlayerRef.current;
@@ -317,6 +319,15 @@ const LiveAPIDemo = () => {
       console.error("Connection failed:", error);
       setDebugInfo("Error: " + error.message);
     }
+  };
+
+  const handleSourceRateChange = (rate) => {
+    const newRate = parseInt(rate);
+    setSourceRate(newRate);
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.setSourceRate(newRate);
+    }
+    setDebugInfo(`Pitch set to ${newRate}Hz`);
   };
 
   const toggleAudio = async () => {
@@ -508,6 +519,17 @@ const LiveAPIDemo = () => {
                     onChange={(e) => setTemperature(e.target.value)}
                     disabled={connected}
                   />
+                </div>
+                <div className="input-group">
+                  <label>Speech Pitch (Rate):</label>
+                  <select
+                    value={sourceRate}
+                    onChange={(e) => handleSourceRateChange(e.target.value)}
+                  >
+                    <option value={24000}>24kHz (Default)</option>
+                    <option value={16000}>16kHz (Deep/Slow Fix)</option>
+                    <option value={48000}>48kHz (High Pitch Fix)</option>
+                  </select>
                 </div>
                 <div className="checkbox-group">
                   <input
@@ -780,7 +802,7 @@ const LiveAPIDemo = () => {
       <div className="debug-info">
         <pre className="setup-json-display">{debugInfo}</pre>
       </div>
-    </div>
+    </div >
   );
 };
 

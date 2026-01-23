@@ -393,7 +393,7 @@ export class AudioPlayer {
     this.gainNode = null;
     this.isInitialized = false;
     this.volume = 1.0;
-    this.sampleRate = 24000; // Gemini outputs at 24kHz
+    this.sourceRate = 24000; // Level 2: Default source rate, can be toggled
   }
 
   /**
@@ -403,11 +403,9 @@ export class AudioPlayer {
     if (this.isInitialized) return;
 
     try {
-      // Create audio context at 24kHz to match Gemini
-      this.audioContext = new (window.AudioContext ||
-        window.webkitAudioContext)({
-          sampleRate: this.sampleRate,
-        });
+      // Level 2: Let the browser decide hardware sample rate for stability
+      // Our manual resampler in the Worklet will handle the 24k/16k to Hardware conversion
+      this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
       // Load the audio worklet from external file
       await this.audioContext.audioWorklet.addModule(
@@ -421,7 +419,7 @@ export class AudioPlayer {
         {
           processorOptions: {
             sampleRate: this.audioContext.sampleRate,
-            bufferMs: 60 // Base jitter buffer, HighFidelityProcessor adds pre-roll
+            sourceRate: this.sourceRate
           }
         }
       );
@@ -494,6 +492,20 @@ export class AudioPlayer {
     this.volume = Math.max(0, Math.min(1, volume));
     if (this.gainNode) {
       this.gainNode.gain.value = this.volume;
+    }
+  }
+
+  /**
+   * Set the source sample rate (for resampling correction)
+   */
+  setSourceRate(rate) {
+    this.sourceRate = rate;
+    if (this.workletNode) {
+      this.workletNode.port.postMessage({
+        type: "updateConfig",
+        sourceRate: rate
+      });
+      console.log(`[AudioPlayer] Source rate updated to ${rate}Hz`);
     }
   }
 

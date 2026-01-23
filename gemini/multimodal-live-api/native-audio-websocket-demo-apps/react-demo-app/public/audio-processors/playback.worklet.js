@@ -1,19 +1,19 @@
 /**
- * High-Fidelity Jitter Buffer & Resampling Processor
- * FIXED: Proper frame tracking with bounded indices to prevent cumulative drift.
+ * High-Fidelity Jitter Buffer & Resampling Processor (Level 2 Ironclad)
+ * FIXED: Monotonic tracking, Bitwise masking, and Unified Ingestion support.
  */
 
 class HighFidelityProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
 
-    // 1. Identify Sample Rates
-    this.sourceRate = 24000;
+    // 1. Identify Sample Rates (Level 2: Support for live-toggling)
+    this.sourceRate = options.processorOptions?.sourceRate || 24000;
     this.hardwareRate = options.processorOptions?.sampleRate || 48000;
     this.resampleRatio = this.sourceRate / this.hardwareRate;
 
-    // 2. Buffer Configuration (250ms capacity)
-    const bufferMs = 250;
+    // 2. Buffer Configuration (300ms capacity - Level 2 Resilience)
+    const bufferMs = 300;
     this.bufferFrames = Math.ceil((this.sourceRate * bufferMs) / 1000);
     // Use power of 2 for fast bitwise modulo
     this.bufferLength = Math.pow(2, Math.ceil(Math.log2(this.bufferFrames * 2)));
@@ -26,8 +26,8 @@ class HighFidelityProcessor extends AudioWorkletProcessor {
     this.framesWritten = 0;     // Monotonic total
     this.framesRead = 0;        // Monotonic total
 
-    // 4. State Machine (100ms Pre-roll)
-    this.preRollFrames = Math.floor((this.sourceRate * 100) / 1000);
+    // 4. State Machine (200ms Pre-roll - Level 2 Safety)
+    this.preRollFrames = Math.floor((this.sourceRate * 200) / 1000);
     this.isBuffering = true;
 
     this.port.onmessage = (event) => {
@@ -35,6 +35,13 @@ class HighFidelityProcessor extends AudioWorkletProcessor {
         this.reset();
       } else if (event.data instanceof Float32Array) {
         this.enqueue(event.data);
+      } else if (event.data?.type === "updateConfig") {
+        // Allow dynamic rate updates
+        if (event.data.sourceRate) {
+          this.sourceRate = event.data.sourceRate;
+          this.resampleRatio = this.sourceRate / this.hardwareRate;
+          this.preRollFrames = Math.floor((this.sourceRate * 200) / 1000);
+        }
       }
     };
   }
@@ -59,7 +66,7 @@ class HighFidelityProcessor extends AudioWorkletProcessor {
 
     if (this.isBuffering && framesAvailable >= this.preRollFrames) {
       this.isBuffering = false;
-      this.port.postMessage({ type: 'started', buffered: framesAvailable });
+      // this.port.postMessage({ type: 'started', buffered: framesAvailable });
     }
   }
 
@@ -68,9 +75,13 @@ class HighFidelityProcessor extends AudioWorkletProcessor {
     if (output.length === 0) return true;
     const channel = output[0];
 
+    // Current density check
     const framesAvailable = this.framesWritten - this.framesRead;
+
+    // Lookahead needed for linear interpolation (nextIdx = idx + 1)
     const framesNeeded = Math.ceil(channel.length * this.resampleRatio) + 1;
 
+    // Handle Buffering or Underrun
     if (this.isBuffering || framesAvailable < framesNeeded) {
       if (!this.isBuffering && framesAvailable < framesNeeded) {
         this.isBuffering = true;
@@ -87,17 +98,20 @@ class HighFidelityProcessor extends AudioWorkletProcessor {
       const idx = Math.floor(this.readPosition);
       const fraction = this.readPosition - idx;
 
+      // Bitwise wrap-around indices
       const curIdx = idx & this.bufferMask;
       const nextIdx = (idx + 1) & this.bufferMask;
 
       const curSample = this.buffer[curIdx];
       const nextSample = this.buffer[nextIdx];
 
+      // Linear Interpolation y = y0 + fraction * (y1 - y0)
       channel[i] = curSample * (1 - fraction) + nextSample * fraction;
 
       this.readPosition += this.resampleRatio;
     }
 
+    // Calculate integer frames consumed based on read position advancement
     const framesConsumed = Math.floor(this.readPosition) - Math.floor(startReadPosition);
     this.framesRead += framesConsumed;
 

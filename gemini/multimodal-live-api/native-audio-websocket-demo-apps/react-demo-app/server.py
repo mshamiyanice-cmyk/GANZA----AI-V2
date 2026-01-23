@@ -133,8 +133,15 @@ async def websocket_handler(request):
         ssl_context = ssl.create_default_context(cafile=certifi.where())
         
         async with ClientSession() as session:
-            async with session.ws_connect(service_url, headers=headers, ssl=ssl_context) as ws_server:
-                print("✅ Connected to Gemini API")
+            # Level 2 Fix: Disable compression and remove size limits for transparent audio delivery
+            async with session.ws_connect(
+                service_url, 
+                headers=headers, 
+                ssl=ssl_context,
+                compress=0,
+                max_msg_size=0
+            ) as ws_server:
+                print("✅ Connected to Gemini API (Clean Pipe Mode)")
                 await proxy_bidirectional(ws_client, ws_server)
                 
     except Exception as e:
