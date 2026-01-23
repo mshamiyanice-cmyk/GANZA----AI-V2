@@ -16,3 +16,4 @@ services:
         value: /etc/secrets/googlekey.json
       - key: DEBUG
         value: "true"
+    healthCheckPath: /healthz

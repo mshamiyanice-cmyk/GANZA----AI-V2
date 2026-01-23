@@ -220,10 +220,15 @@ async def handle_health_check(path, request_headers):
     """
     Handle HTTP requests for health checks (Render compatibility).
     """
-    if path == "/healthz":
+    # Render's health checker often probes / or /healthz
+    if path == "/healthz" or path == "/":
         return (
             http.HTTPStatus.OK,
-            [("Content-Type", "text/plain"), ("Connection", "close")],
+            [
+                ("Content-Type", "text/plain"),
+                ("Connection", "close"),
+                ("Access-Control-Allow-Origin", "*"),
+            ],
             b"OK\n",
         )
     return None
