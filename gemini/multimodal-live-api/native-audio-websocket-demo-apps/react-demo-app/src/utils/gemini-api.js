@@ -262,15 +262,24 @@ export class GeminiLiveAPI {
 
     // Check if the message is binary (Blob) or text (JSON)
     if (messageEvent.data instanceof Blob) {
-      // Handle binary audio data - convert Blob to appropriate format
+      // Handle binary audio data - convert Blob to base64
       messageEvent.data.arrayBuffer().then(buffer => {
+        // Convert ArrayBuffer to base64 string
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const base64Audio = window.btoa(binary);
+
+        // Create proper message structure with base64 audio
         const message = new MultimodalLiveResponseMessage({
           serverContent: {
             modelTurn: {
               parts: [{
                 inlineData: {
                   mimeType: "audio/pcm",
-                  data: buffer
+                  data: base64Audio
                 }
               }]
             }
