@@ -495,17 +495,17 @@ export class AudioPlayer {
   }
 
   /**
-   * Set the source sample rate (for resampling correction)
+   * 🔒 LOCKED: Source rate cannot be changed
+   * 
+   * This method is intentionally disabled because:
+   * 1. Gemini ALWAYS outputs 24kHz PCM16 audio
+   * 2. Allowing manual changes breaks the resampler
+   * 3. User toggling caused the "high pitch chipmunk voice" bug
    */
   setSourceRate(rate) {
-    this.sourceRate = rate;
-    if (this.workletNode) {
-      this.workletNode.port.postMessage({
-        type: "updateConfig",
-        sourceRate: rate
-      });
-      console.log(`[AudioPlayer] Source rate updated to ${rate}Hz`);
-    }
+    console.warn(`⚠️ setSourceRate(${rate}) IGNORED: Source rate is locked to ${this.sourceRate}Hz`);
+    console.warn(`⚠️ Gemini API outputs 24kHz PCM16. Manual changes break resampling.`);
+    console.warn(`⚠️ If you're experiencing pitch issues, the problem is elsewhere.`);
   }
 
   /**

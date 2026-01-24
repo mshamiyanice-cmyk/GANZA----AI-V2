@@ -520,17 +520,6 @@ const LiveAPIDemo = () => {
                     disabled={connected}
                   />
                 </div>
-                <div className="input-group">
-                  <label>Speech Pitch (Rate):</label>
-                  <select
-                    value={sourceRate}
-                    onChange={(e) => handleSourceRateChange(e.target.value)}
-                  >
-                    <option value={24000}>24kHz (Default)</option>
-                    <option value={16000}>16kHz (Deep/Slow Fix)</option>
-                    <option value={48000}>48kHz (High Pitch Fix)</option>
-                  </select>
-                </div>
                 <div className="checkbox-group">
                   <input
                     type="checkbox"
