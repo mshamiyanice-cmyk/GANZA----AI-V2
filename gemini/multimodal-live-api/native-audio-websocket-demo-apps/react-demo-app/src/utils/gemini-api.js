@@ -269,6 +269,7 @@ export class GeminiLiveAPI {
 
     // Check if the message is binary (ArrayBuffer)
     if (messageEvent.data instanceof ArrayBuffer) {
+      console.log("🔵 PATH: RAW BINARY");
       this.processAudioData(messageEvent.data);
       return;
     }
@@ -302,6 +303,7 @@ export class GeminiLiveAPI {
     // Level 2 Patch: "Ghost Path" Protection
     // If the audio arrived via JSON/Base64, route it through the Unified Ingestor
     if (message.type === MultimodalLiveResponseType.AUDIO && typeof message.data === 'string') {
+      console.log("🟠 PATH: JSON (Base64)");
       try {
         const binaryString = atob(message.data);
         const bytes = new Uint8Array(binaryString.length);
@@ -426,6 +428,12 @@ export class GeminiLiveAPI {
               },
             },
           },
+          // Level 2 Diagnostic: Explicitly set audio format to 16-bit Mono PCM
+          audio_format: {
+            sample_rate: 24000,
+            channel_count: 1,
+            encoding: "LINEAR16"
+          }
         },
         system_instruction: { parts: [{ text: this.systemInstructions }] },
         tools: { function_declarations: tools },

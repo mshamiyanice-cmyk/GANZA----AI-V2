@@ -12,6 +12,9 @@ class HighFidelityProcessor extends AudioWorkletProcessor {
     this.hardwareRate = options.processorOptions?.sampleRate || 48000;
     this.resampleRatio = this.sourceRate / this.hardwareRate;
 
+    // Level 2 Telemetry: Shout state to console
+    console.log(`[Worklet:TELEMETRY] Source: ${this.sourceRate}Hz | Hardware: ${this.hardwareRate}Hz | Ratio: ${this.resampleRatio.toFixed(4)}`);
+
     // 2. Buffer Configuration (300ms capacity - Level 2 Resilience)
     const bufferMs = 300;
     this.bufferFrames = Math.ceil((this.sourceRate * bufferMs) / 1000);

@@ -404,13 +404,12 @@ export class AudioPlayer {
 
     try {
       // Level 2: Let the browser decide hardware sample rate for stability
-      // Our manual resampler in the Worklet will handle the 24k/16k to Hardware conversion
       this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      console.log(`🎵 ACTUAL HARDWARE RATE: ${this.audioContext.sampleRate}Hz`);
 
-      // Load the audio worklet from external file
-      await this.audioContext.audioWorklet.addModule(
-        "/audio-processors/playback.worklet.js"
-      );
+      // Level 2 Diagnostic: Force refresh of the worklet (Cache Busting)
+      const workletUrl = "/audio-processors/playback.worklet.js?v=" + new Date().getTime();
+      await this.audioContext.audioWorklet.addModule(workletUrl);
 
       // Create worklet node with hardware sample rate for interpolation resampler
       this.workletNode = new AudioWorkletNode(
