@@ -428,12 +428,6 @@ export class GeminiLiveAPI {
               },
             },
           },
-          // Level 2 Diagnostic: Explicitly set audio format to 16-bit Mono PCM
-          audio_format: {
-            sample_rate: 24000,
-            channel_count: 1,
-            encoding: "LINEAR16"
-          }
         },
         system_instruction: { parts: [{ text: this.systemInstructions }] },
         tools: { function_declarations: tools },
