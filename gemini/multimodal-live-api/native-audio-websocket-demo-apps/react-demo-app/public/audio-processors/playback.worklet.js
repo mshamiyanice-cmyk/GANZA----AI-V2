@@ -41,11 +41,15 @@ class HighFidelityProcessor extends AudioWorkletProcessor {
       this.isFatal = true;
     }
 
-    // 3. THE INVARIANT LOG (Proof of execution)
-    console.log(`[Worklet] 🛠️ CONTRACT ALIGNED`);
-    if (usingLegacy) console.warn(`[Worklet] ⚠️ MIGRATION WARNING: Using legacy rate keys. Update your media-utils.js!`);
-    console.log(`[Worklet] 🛠️ srcRate: ${this.srcRate} | hwRate: ${this.hwRate}`);
-    console.log(`[Worklet] 🚀 RESAMPLER ACTIVE: readPos step = ratio = ${this.ratio.toFixed(4)}`);
+    // 3. THE IRREFUTABLE PROOF (Truth Table)
+    const BUILD_ID = "2026-01-29.02-RUTHLESS";
+    console.log(`[Worklet] 🛠️ Truth Table: BUILD=${BUILD_ID} srcRate=${this.srcRate} hwRate=${this.hwRate} ratio=${this.ratio.toFixed(4)} readStep=${this.ratio.toFixed(4)} legacy=${usingLegacy}`);
+
+    if (this.isFatal) {
+      console.error(`[Worklet] ❌ FATAL ERROR: Resampler is in KILL-SWITCH mode (Silence only).`);
+    } else {
+      console.log(`[Worklet] 🚀 RESAMPLER ACTIVE: Resampling ${this.srcRate}Hz -> ${this.hwRate}Hz`);
+    }
 
     // Ring Buffer
     this.capacity = 16384 * 2;

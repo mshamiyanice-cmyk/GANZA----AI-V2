@@ -80,6 +80,7 @@ const LiveAPIDemo = () => {
   const audioPlayerRef = useRef(null);
   const videoPreviewRef = useRef(null);
   const chatContainerRef = useRef(null);
+  const connectingRef = useRef(false);
 
   // Initialize Media Devices
   useEffect(() => {
@@ -235,6 +236,7 @@ const LiveAPIDemo = () => {
     setAudioStreaming(false);
     setVideoStreaming(false);
     setScreenSharing(false);
+    connectingRef.current = false;
 
     if (videoPreviewRef.current) {
       videoPreviewRef.current.srcObject = null;
@@ -250,10 +252,18 @@ const LiveAPIDemo = () => {
   }, []);
 
   const connect = async () => {
+    if (connected || connectingRef.current) {
+      console.log("⚠️ Connection already in progress, ignoring duplicate call.");
+      return;
+    }
+
     if (!proxyUrl && !projectId) {
       alert("Please provide either a Proxy URL and Project ID");
       return;
     }
+
+    connectingRef.current = true;
+    setDebugInfo("Connecting...");
 
     try {
       clientRef.current = new GeminiLiveAPI(proxyUrl, projectId, model);
@@ -316,6 +326,7 @@ const LiveAPIDemo = () => {
 
       setDebugInfo("Connected successfully");
     } catch (error) {
+      connectingRef.current = false;
       console.error("Connection failed:", error);
       setDebugInfo("Error: " + error.message);
     }

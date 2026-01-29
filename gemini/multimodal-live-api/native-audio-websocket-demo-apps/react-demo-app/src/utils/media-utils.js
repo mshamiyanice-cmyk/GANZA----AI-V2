@@ -400,6 +400,10 @@ export class AudioPlayer {
    * Initialize the audio player
    */
   async init() {
+    if (this.isInitialized) {
+      console.warn("⚠️ AudioPlayer already initialized, skipping duplicate init.");
+      return;
+    }
     if (this.isInitialized) return;
 
     try {
@@ -516,10 +520,14 @@ export class AudioPlayer {
    * Clean up resources
    */
   destroy() {
+    this.isInitialized = false;
     if (this.audioContext) {
       this.audioContext.close();
       this.audioContext = null;
     }
-    this.isInitialized = false;
+    if (this.workletNode) {
+      this.workletNode.disconnect();
+      this.workletNode = null;
+    }
   }
 }
