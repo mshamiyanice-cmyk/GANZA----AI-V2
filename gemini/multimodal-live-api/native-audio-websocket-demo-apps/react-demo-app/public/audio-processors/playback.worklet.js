@@ -1,27 +1,72 @@
 class HighFidelityProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
-    this.srcRate = options.processorOptions.sourceRate;
-    this.hwRate = options.processorOptions.hardwareRate;
-    this.ratio = this.srcRate / this.hwRate; // ~0.5 for 24k->48k
+    // 1. MIGRATION-AWARE RATE DETECTION
+    const opts = options.processorOptions || {};
 
-    // 1. Ring Buffer
+    let usingLegacy = false;
+    this.srcRate = opts.srcRate;
+    if (this.srcRate === undefined) {
+      this.srcRate = opts.sourceRate;
+      if (this.srcRate !== undefined) usingLegacy = true;
+    }
+
+    this.hwRate = opts.hwRate;
+    if (this.hwRate === undefined) {
+      this.hwRate = opts.hardwareRate ?? opts.sampleRate;
+      if (this.hwRate !== undefined) usingLegacy = true;
+    }
+
+    // 2. SANITY BOUNDS & FAIL-FAST
+    this.isFatal = false;
+    const MIN_RATE = 8000;
+    const MAX_RATE = 192000;
+
+    const isInvalid = (rate) => !rate || rate < MIN_RATE || rate > MAX_RATE;
+
+    if (isInvalid(this.srcRate) || isInvalid(this.hwRate)) {
+      const errorMsg = `❌ FATAL RATE ERROR: Invalid/Insane configuration (src:${this.srcRate}, hw:${this.hwRate})`;
+      console.error(errorMsg);
+      this.isFatal = true;
+      // Fallback only to keep system from crashing, remains fatal
+      this.srcRate = this.srcRate || 24000;
+      this.hwRate = this.hwRate || 48000;
+    }
+
+    this.ratio = this.srcRate / this.hwRate;
+
+    // Decisive bounds check
+    if (isNaN(this.ratio) || this.ratio <= 0 || this.ratio > 4.0) {
+      console.error(`❌ FATAL RATIO ERROR: Ratio ${this.ratio} is out of bounds.`);
+      this.isFatal = true;
+    }
+
+    // 3. THE INVARIANT LOG (Proof of execution)
+    console.log(`[Worklet] 🛠️ CONTRACT ALIGNED`);
+    if (usingLegacy) console.warn(`[Worklet] ⚠️ MIGRATION WARNING: Using legacy rate keys. Update your media-utils.js!`);
+    console.log(`[Worklet] 🛠️ srcRate: ${this.srcRate} | hwRate: ${this.hwRate}`);
+    console.log(`[Worklet] 🚀 RESAMPLER ACTIVE: readPos step = ratio = ${this.ratio.toFixed(4)}`);
+
+    // Ring Buffer
     this.capacity = 16384 * 2;
     this.buffer = new Float32Array(this.capacity);
     this.writeIdx = 0;
     this.readPos = 0;
     this.count = 0;
 
-    // 2. Anti-Aliasing (1-pole LPF)
+    // Anti-Aliasing (1-pole LPF)
     this.lastSample = 0;
-    this.lpAlpha = 0.8; // Smoothing factor
+    this.lpAlpha = 0.8;
 
-    // 3. Signal Integrity Watchdog (Reason 5)
+    // Signal Integrity Watchdog
+    // DEFINITIONS:
+    // watchdogSamples: Input samples received from Gemini
+    // watchdogTicks: Hardware time slots processed by worklet
     this.watchdogTicks = 0;
     this.watchdogSamples = 0;
     this.isWatchdogActive = false;
 
-    // 4. Pitch Diagnostics
+    // Pitch Diagnostics
     this.lastCrossing = 0;
     this.crossings = 0;
     this.diagSamples = 0;
@@ -29,7 +74,6 @@ class HighFidelityProcessor extends AudioWorkletProcessor {
     this.port.onmessage = (e) => {
       if (e.data instanceof Float32Array) {
         this.enqueue(e.data);
-        // Start watchdog on first audio chunk
         if (!this.isWatchdogActive) this.isWatchdogActive = true;
         this.watchdogSamples += e.data.length;
       }
@@ -47,6 +91,12 @@ class HighFidelityProcessor extends AudioWorkletProcessor {
   process(inputs, outputs) {
     const channel = outputs[0][0];
     if (!channel) return true;
+
+    // Kill-Switch: If configuration is fatal, output silence
+    if (this.isFatal) {
+      channel.fill(0);
+      return true;
+    }
 
     // Safety: Only play if we have enough lookahead for interpolation
     if (this.bufferCount() < channel.length * this.ratio + 2) {

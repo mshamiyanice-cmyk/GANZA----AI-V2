@@ -417,8 +417,12 @@ export class AudioPlayer {
         "pcm-processor",
         {
           processorOptions: {
-            sampleRate: this.audioContext.sampleRate,
-            sourceRate: this.sourceRate
+            hwRate: this.audioContext.sampleRate,
+            srcRate: this.sourceRate,
+            // Legacy/Migration Support
+            hardwareRate: this.audioContext.sampleRate,
+            sourceRate: this.sourceRate,
+            sampleRate: this.audioContext.sampleRate
           }
         }
       );
