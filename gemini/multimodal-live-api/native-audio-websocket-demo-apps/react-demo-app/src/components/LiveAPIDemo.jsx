@@ -17,13 +17,9 @@ const LiveAPIDemo = () => {
   const [setupJson, setSetupJson] = useState(null);
 
   // Configuration State
-  const [proxyUrl, setProxyUrl] = useState(
-    getAppSetting("proxyUrl", "ws://localhost:8080")
-  );
+  const [proxyUrl, setProxyUrl] = useState(getAppSetting("proxyUrl", ""));
   const [projectId, setProjectId] = useState(getAppSetting("projectId", ""));
-  const [model, setModel] = useState(
-    getAppSetting("model", "gemini-2.5-flash-native-audio-preview-12-2025")
-  );
+  const [model, setModel] = useState(getAppSetting("model", ""));
 
   useEffect(() => {
     localStorage.setItem("proxyUrl", proxyUrl);
@@ -257,8 +253,9 @@ const LiveAPIDemo = () => {
       return;
     }
 
-    if (!proxyUrl && !projectId) {
-      alert("Please provide either a Proxy URL and Project ID");
+    if (!proxyUrl || !projectId || !model) {
+      alert("❌ CRITICAL: Missing Project ID, Proxy URL, or Model. Check your .env configuration.");
+      setDebugInfo("Error: Missing configuration");
       return;
     }
 
